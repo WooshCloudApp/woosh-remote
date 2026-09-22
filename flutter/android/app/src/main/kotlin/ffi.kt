@@ -27,4 +27,9 @@ object FFI {
     external fun getBuildinOption(key: String): String
     external fun onClipboardUpdate(clips: ByteBuffer)
     external fun isServiceClipboardEnabled(): Boolean
+
+    // Woosh: session control, called by WooshRemoteControlService only.
+    external fun wooshSetSessionPassword(password: String): Boolean
+    external fun wooshClearSessionPassword(): Boolean
+    external fun wooshGetId(): String
 }

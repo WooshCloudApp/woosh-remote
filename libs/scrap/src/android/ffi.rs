@@ -509,3 +509,68 @@ pub extern "system" fn Java_ffi_FFI_onAppStart(mut env: JNIEnv, _class: JClass, 
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Woosh additions. Kept at the end of the file so a rebase onto a new
+// upstream tag is a single conflict-free block.
+// ---------------------------------------------------------------------------
+
+/// Accept connections with this password only, and without a second
+/// click-to-accept on the device: consent was already given in the Woosh
+/// agent's own prompt (or by the merchant's standing authorisation).
+#[no_mangle]
+pub extern "system" fn Java_ffi_FFI_wooshSetSessionPassword(
+    mut env: JNIEnv,
+    _class: JClass,
+    password: JString,
+) -> jboolean {
+    let password: String = match env.get_string(&password) {
+        Ok(s) => s.into(),
+        Err(_) => return jni::sys::JNI_FALSE,
+    };
+    // Odoo issues 12 random characters; refuse anything weaker.
+    if password.chars().filter(|c| c.is_ascii_alphanumeric()).count() < 12 {
+        return jni::sys::JNI_FALSE;
+    }
+    hbb_common::config::Config::set_option("verification-method".into(), "use-permanent-password".into());
+    hbb_common::config::Config::set_option("approve-mode".into(), "password".into());
+    if hbb_common::config::Config::set_permanent_password(&password) {
+        jni::sys::JNI_TRUE
+    } else {
+        jni::sys::JNI_FALSE
+    }
+}
+
+/// Replace the session password with 48 random hex characters nobody knows.
+/// Called when a session ends, when its time limit passes, and at start-up,
+/// so a crash can never leave a known password live.
+#[no_mangle]
+pub extern "system" fn Java_ffi_FFI_wooshClearSessionPassword(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jboolean {
+    use std::io::Read as _;
+    let mut bytes = [0u8; 24];
+    let random = std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut bytes))
+        .is_ok();
+    if !random {
+        return jni::sys::JNI_FALSE;
+    }
+    let throwaway: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+    if hbb_common::config::Config::set_permanent_password(&throwaway) {
+        jni::sys::JNI_TRUE
+    } else {
+        jni::sys::JNI_FALSE
+    }
+}
+
+/// The ID this device is registered under on the relay (what the technician
+/// connects to). Reported back to Odoo as `peer_id`.
+#[no_mangle]
+pub extern "system" fn Java_ffi_FFI_wooshGetId(env: JNIEnv, _class: JClass) -> jni::sys::jstring {
+    match env.new_string(hbb_common::config::Config::get_id()) {
+        Ok(s) => s.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}

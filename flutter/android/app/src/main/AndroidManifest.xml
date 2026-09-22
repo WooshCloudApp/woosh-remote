@@ -1,6 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.carriez.flutter_hbb">
+
+    <!-- Woosh: only apps signed with the same key (the Woosh agent) may start
+         or stop a session. Declared in both apps, so either can install first. -->
+    <permission
+        android:name="au.com.wooshpay.permission.REMOTE_SESSION"
+        android:protectionLevel="signature" />
+    <!-- Woosh: lets the client switch its own accessibility input service on.
+         Granted only as a privileged system app; as an ordinary app the service
+         falls back to view only. -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -101,6 +115,18 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- Woosh: the agent's only door into this app. -->
+        <service
+            android:name=".WooshRemoteControlService"
+            android:exported="true"
+            android:permission="au.com.wooshpay.permission.REMOTE_SESSION"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Merchant-authorised remote support session" />
+        </service>
+
     </application>
 
 </manifest>
