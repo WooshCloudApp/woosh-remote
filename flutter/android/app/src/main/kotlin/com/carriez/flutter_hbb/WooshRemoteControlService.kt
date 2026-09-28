@@ -104,6 +104,19 @@ class WooshRemoteControlService : Service() {
                 .setAction(ACT_REQUEST_MEDIA_PROJECTION)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
+        // Register with the relay. MainService.onCreate calls FFI.startServer,
+        // but nothing calls FFI.startService unless the app was opened by hand
+        // or started at boot - and without it the client never announces itself
+        // to the ID server, so a technician gets "connection id does not exist".
+        // A short delay lets MainService come up and run FFI.init first.
+        handler.postDelayed({
+            try {
+                FFI.startService()
+                Log.i(TAG, "relay service started for session $session")
+            } catch (e: Throwable) {
+                Log.e(TAG, "could not start the relay service", e)
+            }
+        }, 1500)
         handler.removeCallbacks(timeLimit)
         handler.postDelayed(timeLimit, maxMinutes * 60_000L)
 
