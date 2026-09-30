@@ -57,8 +57,38 @@ class WooshRemoteControlService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // Before ANY other FFI call: see ensureAppDir.
+        ensureAppDir()
         // A crash or reboot mid-session must not leave a known password live.
         FFI.wooshClearSessionPassword()
+    }
+
+    /**
+     * Give RustDesk its data folder, and record it for MainService.
+     *
+     * Upstream saves the folder only when someone opens the app by hand
+     * (MainActivity, SYNC_APP_DIR_CONFIG_PATH). A device where nobody ever
+     * has - a locked POS - ran with no folder: its ID was never saved, a new
+     * one was made up every time the process started, and the ID sent to Odoo
+     * was not the one on the relay ("ID does not exist"). The kiosk worked
+     * only because its app had been opened once.
+     *
+     * Same folder Flutter's getApplicationDocumentsDirectory() gives the UI
+     * (app_flutter), so a device that HAS been opened keeps its ID.
+     */
+    private fun ensureAppDir() {
+        try {
+            val prefs = getSharedPreferences(KEY_SHARED_PREFERENCES, MODE_PRIVATE)
+            var dir = prefs.getString(KEY_APP_DIR_CONFIG_PATH, "").orEmpty()
+            if (dir.isEmpty()) {
+                dir = getDir("flutter", MODE_PRIVATE).path
+                prefs.edit().putString(KEY_APP_DIR_CONFIG_PATH, dir).commit()
+                Log.i(TAG, "config folder was never set; using $dir")
+            }
+            FFI.wooshSetAppDir(dir)
+        } catch (e: Throwable) {
+            Log.e(TAG, "could not set the config folder", e)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -67,7 +97,15 @@ class WooshRemoteControlService : Service() {
         startForegroundCompat(intent?.getStringExtra(EXTRA_SESSION))
         val receiver = resultReceiver(intent)
         when (intent?.action) {
-            ACTION_START -> startSession(intent, receiver)
+            // Anything thrown while starting is an answer, not silence. An
+            // uncaught exception here killed the process before the reply,
+            // and all Odoo ever saw was the agent's 90 s remote_client_no_answer.
+            ACTION_START -> try {
+                startSession(intent, receiver)
+            } catch (e: Throwable) {
+                Log.e(TAG, "session start crashed", e)
+                fail(receiver, "start_failed: ${e.javaClass.simpleName}: ${e.message}")
+            }
             ACTION_STOP -> {
                 stopSession(intent.getStringExtra(EXTRA_REASON) ?: "ended")
                 receiver?.send(RESULT_OK, Bundle())
@@ -99,11 +137,22 @@ class WooshRemoteControlService : Service() {
         // RustDesk's own screen-capture flow. With the PROJECT_MEDIA app-op
         // pre-granted (see README, section 5) Android returns the projection
         // without showing its "start recording?" dialog.
-        startActivity(
-            Intent(this, PermissionRequestTransparentActivity::class.java)
-                .setAction(ACT_REQUEST_MEDIA_PROJECTION)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
+        //
+        // A locked till (lock task) only lets listed packages start an
+        // activity; the Woosh agent lists this one. If it is refused anyway,
+        // carry on and say so: the ID still goes back, and the log names why
+        // the technician sees no screen.
+        val captureRequested = try {
+            startActivity(
+                Intent(this, PermissionRequestTransparentActivity::class.java)
+                    .setAction(ACT_REQUEST_MEDIA_PROJECTION)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "session $session: screen capture could not be requested (lock task?)", e)
+            false
+        }
         // Register with the relay. MainService.onCreate calls FFI.startServer,
         // but nothing calls FFI.startService unless the app was opened by hand
         // or started at boot - and without it the client never announces itself
@@ -125,6 +174,7 @@ class WooshRemoteControlService : Service() {
         receiver?.send(RESULT_OK, Bundle().apply {
             putString("peer_id", id)
             putBoolean("input_enabled", inputEnabled)
+            putBoolean("capture_requested", captureRequested)
         })
     }
 

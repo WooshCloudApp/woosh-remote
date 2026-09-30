@@ -32,4 +32,5 @@ object FFI {
     external fun wooshSetSessionPassword(password: String): Boolean
     external fun wooshClearSessionPassword(): Boolean
     external fun wooshGetId(): String
+    external fun wooshSetAppDir(appDir: String)
 }

@@ -565,6 +565,28 @@ pub extern "system" fn Java_ffi_FFI_wooshClearSessionPassword(
     }
 }
 
+/// Point RustDesk's config at its data folder BEFORE anything reads it.
+///
+/// Upstream only learns the folder when the Flutter UI has been opened (it
+/// saves the path, MainService reads it back). The Woosh agent starts us
+/// without the UI, and the first config read then happened with an empty
+/// APP_DIR: nothing loaded, nothing saved, a fresh random ID per process -
+/// and Odoo was handed an ID the relay had never heard of. CONFIG loads once,
+/// on first use, so this must run first; a later call changes nothing.
+#[no_mangle]
+pub extern "system" fn Java_ffi_FFI_wooshSetAppDir(
+    mut env: JNIEnv,
+    _class: JClass,
+    app_dir: JString,
+) {
+    if let Ok(dir) = env.get_string(&app_dir) {
+        let dir: String = dir.into();
+        if !dir.is_empty() {
+            *hbb_common::config::APP_DIR.write().unwrap() = dir;
+        }
+    }
+}
+
 /// The ID this device is registered under on the relay (what the technician
 /// connects to). Reported back to Odoo as `peer_id`.
 #[no_mangle]
